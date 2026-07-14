@@ -18,7 +18,7 @@ The package publishes ESM + type declarations with these entry points (reserved 
 | `@gridmason/sdk/fixture` | `createFixtureSDK()` — no-op backed by an author fixture map |
 | `@gridmason/sdk/conformance` | host-conformance test kit — "a valid Gridmason host" made machine-checkable |
 
-Depends on `@gridmason/protocol` only (capability grammar, page-context types, `WidgetId`) — never on `core`, the registry, or any host (SPEC §7).
+Depends on `@gridmason/protocol` only (capability grammar, page-context types, `WidgetID`) — never on `core`, the registry, or any host (SPEC §7). The SDK re-exports the author-facing subset of those protocol types from `@gridmason/sdk` (so a widget author needs no second install) and consumes the rest internally; which is which, and where each downstream import comes from, is the [re-export policy](docs/re-export-policy.md).
 
 ## Status
 
