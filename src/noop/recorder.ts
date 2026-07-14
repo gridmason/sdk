@@ -53,6 +53,17 @@ export interface RecordedCall<M extends string = string> {
   readonly args: readonly unknown[];
   /** Monotonic ordinal across all calls on this recorder, starting at `0`. */
   readonly seq: number;
+  /**
+   * Optional, opaque tag an implementation attaches to a call so a downstream
+   * inspector can classify it — the recorder itself neither reads nor interprets
+   * it. The no-op leaves it unset (a plain `{ method, args, seq }`); the fixture
+   * impl (issue #7) tags each gated call with its outcome
+   * (`fixture-hit`/`default-empty`/`denied`/`allowed`) so the CLI's SDK inspector
+   * (cli §4) can show which calls were backed by fixture data. Kept `unknown`
+   * here to preserve the recorder's transport-agnostic thinness (module doc);
+   * the tagging impl owns the concrete shape.
+   */
+  readonly meta?: unknown;
 }
 
 /**
@@ -64,9 +75,13 @@ export interface RecordedCall<M extends string = string> {
 export interface CallRecorder<M extends string = string> {
   /**
    * Append an invocation to the log and return the created entry. Called by the
-   * dev impls behind every method; a test never calls this directly.
+   * dev impls behind every method; a test never calls this directly. `meta` is
+   * an optional, opaque per-call tag (see {@link RecordedCall.meta}) — the no-op
+   * omits it; the fixture impl passes its outcome classification. When omitted,
+   * the created entry has no `meta` key at all (back-compat with callers that
+   * assert `{ method, args, seq }` exactly).
    */
-  record(method: M, args: readonly unknown[]): RecordedCall<M>;
+  record(method: M, args: readonly unknown[], meta?: unknown): RecordedCall<M>;
   /**
    * Every recorded call in invocation order. A defensive snapshot — mutating the
    * returned array never affects the log.
@@ -95,8 +110,14 @@ export function createCallRecorder<M extends string = string>(): CallRecorder<M>
   let seq = 0;
 
   return {
-    record(method, args) {
-      const call: RecordedCall<M> = Object.freeze({ method, args, seq: seq++ });
+    record(method, args, meta) {
+      // Omit `meta` entirely when unset so a plain call deep-equals
+      // `{ method, args, seq }` (back-compat, and `toStrictEqual`-clean).
+      const call: RecordedCall<M> = Object.freeze(
+        meta === undefined
+          ? { method, args, seq: seq++ }
+          : { method, args, seq: seq++, meta },
+      );
       log.push(call);
       return call;
     },
