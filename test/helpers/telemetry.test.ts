@@ -150,6 +150,59 @@ describe('time() measures latency and attributes it', () => {
     await expect(telemetry.time('load', () => Promise.reject(boom))).rejects.toBe(boom);
     expect(getNoopControls(sdk).recorder.last('telemetry.mark')?.args[0]).toBe('load');
   });
+
+  // #45 batch review: when the op ALREADY threw/rejected and the handle is also
+  // revoked, the latency `mark` throws `InstanceGone` — which must NOT replace the
+  // widget's original error. The original wins; the InstanceGone is preserved as
+  // `cause` rather than silently dropped. (Happy-path revoked semantics — op
+  // succeeds → InstanceGone throws, #13 — are unchanged; asserted below.)
+  test('sync op throws + revoked handle: original error propagates, InstanceGone attached as cause', () => {
+    const sdk = mountedSdk('inst-1');
+    const telemetry = attributeTelemetry(sdk);
+    getNoopControls(sdk).unmount();
+    const boom = new Error('render-boom');
+
+    let thrown: unknown;
+    try {
+      telemetry.time('render', () => {
+        throw boom;
+      });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBe(boom);
+    expect(isInstanceGone((thrown as Error).cause)).toBe(true);
+  });
+
+  test('async op rejects + revoked handle: original reason propagates, InstanceGone attached as cause', async () => {
+    const sdk = mountedSdk('inst-1');
+    const telemetry = attributeTelemetry(sdk);
+    getNoopControls(sdk).unmount();
+    const boom = new Error('load-boom');
+
+    let thrown: unknown;
+    try {
+      await telemetry.time('load', () => Promise.reject(boom));
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBe(boom);
+    expect(isInstanceGone((thrown as Error).cause)).toBe(true);
+  });
+
+  test('op SUCCEEDS + revoked handle: InstanceGone still surfaces from the mark (#13 unchanged)', () => {
+    const sdk = mountedSdk('inst-1');
+    const telemetry = attributeTelemetry(sdk);
+    getNoopControls(sdk).unmount();
+
+    let thrown: unknown;
+    try {
+      telemetry.time('compute', () => 6 * 7);
+    } catch (e) {
+      thrown = e;
+    }
+    expect(isInstanceGone(thrown)).toBe(true);
+  });
 });
 
 describe('revoked handle: telemetry throws InstanceGone (SPEC §3 rule 6, #13)', () => {

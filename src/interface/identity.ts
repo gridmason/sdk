@@ -171,8 +171,10 @@ export interface IdentityStamper {
  * Bind an {@link InstanceTokenReader} into an {@link IdentityStamper} for one
  * mount — the transport-attachment API a real host wires behind its `records`/
  * `net` implementation. The `readToken` closure is captured privately; the token
- * is read afresh on every stamp (so a mid-life revocation takes effect
- * immediately) and never returned.
+ * is read afresh — **exactly once per stamp operation** (`stampHeaders` /
+ * `stampRequest` each invoke the reader a single time) — so a mid-life revocation
+ * takes effect immediately, while a `readToken` with side effects or cost runs no
+ * more than the caller's stamp count. The token is never returned.
  *
  * A stamp while the reader yields `undefined` (the instance was revoked on
  * unmount, SPEC §3 rule 6) throws {@link InstanceGone} rather than emitting a

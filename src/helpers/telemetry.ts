@@ -29,6 +29,7 @@
  * `@gridmason/protocol` only, never on core (SPEC §7).
  */
 
+import { isInstanceGone } from '../interface/index.js';
 import type { HostSDK, WidgetError } from '../interface/index.js';
 import type { WidgetID } from '../protocol/index.js';
 
@@ -167,6 +168,35 @@ function createAttributedTelemetry(sdk: HostSDK): AttributedTelemetry {
     return { instanceId, widgetId, error: stamped };
   }
 
+  // Record latency-to-failure for an `op` that already threw/rejected, without
+  // ever letting the mark shadow the widget's original error (#45 batch review).
+  // On a revoked handle the `mark` forward throws `InstanceGone` (#13); on the
+  // happy path that surfaces (op succeeded), but here the widget already has a
+  // real error, so the original must win. If the mark's InstanceGone is the only
+  // signal that the handle died mid-op, attach it as `cause` rather than dropping
+  // it — the original still propagates intact.
+  function markFailureLatency(name: string, ms: number, original: unknown): void {
+    try {
+      mark(name, ms);
+    } catch (markErr) {
+      if (
+        isInstanceGone(markErr) &&
+        typeof original === 'object' &&
+        original !== null &&
+        (original as { cause?: unknown }).cause === undefined
+      ) {
+        try {
+          (original as { cause?: unknown }).cause = markErr;
+        } catch {
+          // `original` is frozen/sealed: keep it as-is. Dropping the mark's
+          // InstanceGone is fine — the widget's original error is what matters.
+        }
+      }
+      // Any throw from the mark (InstanceGone or otherwise) is swallowed: the
+      // latency side effect must never replace the op's outcome.
+    }
+  }
+
   function time<T>(name: string, op: () => T): T {
     const start = now();
     const elapsed = (): number => now() - start;
@@ -175,7 +205,7 @@ function createAttributedTelemetry(sdk: HostSDK): AttributedTelemetry {
       result = op();
     } catch (err) {
       // Synchronous throw: record latency-to-failure, then re-throw the original.
-      mark(name, elapsed());
+      markFailureLatency(name, elapsed(), err);
       throw err;
     }
     if (isThenable(result)) {
@@ -185,7 +215,7 @@ function createAttributedTelemetry(sdk: HostSDK): AttributedTelemetry {
           return value;
         },
         (err: unknown) => {
-          mark(name, elapsed());
+          markFailureLatency(name, elapsed(), err);
           throw err;
         },
       ) as T;
