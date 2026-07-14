@@ -49,11 +49,12 @@ import type {
   WidgetSettings,
 } from '../../interface/index.js';
 import type { RecordStatus } from '../index.js';
-import { recordSource, settingsSource, subscribe } from '../index.js';
+import { recordSource, releaseInstance, settingsSource, subscribe } from '../index.js';
 
 // The framework-agnostic 1:1 wrappers need no Vue glue; re-export them so a widget
-// imports its whole helper set from `@gridmason/sdk/vue`.
-export { emit, scopedFetch } from '../index.js';
+// imports its whole helper set from `@gridmason/sdk/vue`. `releaseInstance` is
+// re-exported for a widget that wants to release every subscription itself.
+export { emit, releaseInstance, scopedFetch } from '../index.js';
 export type {
   ReactiveSource,
   RecordSnapshot,
@@ -173,4 +174,24 @@ export function useSettings(
 export function on<T>(sdk: HostSDK, topic: TypedTopic<T>, handler: (payload: T) => void): void {
   const unsubscribe = subscribe(sdk, topic, handler);
   onScopeDispose(unsubscribe);
+}
+
+/**
+ * Release every helper `events` subscription for `sdk` when the component's scope
+ * disposes (SPEC §3 rule 6, widget side) — the Vue form of React's
+ * {@link import('../react/index.js').useInstanceCleanup}. Each {@link on} already
+ * releases its own subscription on `onScopeDispose`; this is the belt-and-braces
+ * seam for a widget that also subscribes imperatively (via the core `subscribe`) or
+ * wants one guaranteed teardown that leaves no subscriber behind. Call it from
+ * `setup` (or another composable):
+ *
+ * ```ts
+ * useInstanceCleanup(sdk); // frees every helper subscription on scope dispose
+ * ```
+ *
+ * The host independently revokes the instance token on its side, so a stale call
+ * still rejects a typed `InstanceGone`; this releases the widget-side bookkeeping.
+ */
+export function useInstanceCleanup(sdk: HostSDK): void {
+  onScopeDispose(() => releaseInstance(sdk));
 }

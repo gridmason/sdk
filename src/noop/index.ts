@@ -28,6 +28,16 @@
  * `events.on` also records `events.unsubscribe` when the returned
  * {@link Unsubscribe} runs, so a test can assert a widget released a subscription.
  *
+ * ## Unmount (SPEC §3 rule 6)
+ *
+ * The typed-empty returns above are the handle's behavior *while live*. Calling
+ * {@link NoopControls.unmount} revokes the per-instance token: from then on every
+ * gated call fails with a typed {@link InstanceGone} instead — async members reject,
+ * sync ones throw, never hanging and never returning data — and every live
+ * `events.on` subscription is released (recording its `events.unsubscribe`). This is
+ * the same lifecycle a conforming host runs, so the handle can back the conformance
+ * kit's rule-6 check.
+ *
  * The typed-default fall-through lives in {@link buildNoopMembers}, which the
  * fixture impl reuses for its unmatched-call path.
  */
@@ -53,6 +63,8 @@ import type { PageContext, WidgetID } from '../protocol/index.js';
 
 import type { CallRecorder, SdkMethod } from './recorder.js';
 import { createCallRecorder } from './recorder.js';
+import { createInstanceLifecycle } from './lifecycle.js';
+import type { InstanceLifecycle } from './lifecycle.js';
 
 export type {
   CallRecorder,
@@ -60,6 +72,8 @@ export type {
   SdkMethod,
 } from './recorder.js';
 export { createCallRecorder } from './recorder.js';
+export { createInstanceLifecycle } from './lifecycle.js';
+export type { InstanceLifecycle } from './lifecycle.js';
 
 /**
  * Symbol key under which every no-op handle carries its {@link NoopControls}.
@@ -88,6 +102,18 @@ export interface NoopControls {
   readonly label: string;
   /** The per-handle recorder of every method invocation. */
   readonly recorder: CallRecorder<SdkMethod>;
+  /** `true` once {@link unmount} has been called — the handle is stale (SPEC §3 rule 6). */
+  readonly revoked: boolean;
+  /**
+   * Unmount this instance (SPEC §3 rule 6) — the out-of-band host-lifecycle
+   * control the widget itself never holds. It revokes the per-instance token
+   * (every subsequent gated call rejects/throws a typed {@link InstanceGone}, never
+   * a hang, never data) and releases every `events.on` subscription registered
+   * through the handle (each records its `events.unsubscribe`). Idempotent — a
+   * second call is a no-op. This mirrors a conforming host's unmount, so the
+   * conformance kit's rule-6 check drives this handle through the same seam.
+   */
+  unmount(): void;
 }
 
 /**
@@ -127,14 +153,26 @@ export interface NoopSDKOptions {
 let instanceCounter = 0;
 
 /**
- * Build the branded {@link NoopControls} for one handle: a fresh recorder plus
- * the immutable brand fields.
+ * Build the branded {@link NoopControls} for one handle: the brand fields plus
+ * the `unmount` seam that revokes `lifecycle`. Takes the `recorder` and
+ * `lifecycle` the handle's members share so a recording, and the revocation the
+ * members guard against, are the same objects the controls expose.
  */
-function createNoopControls(label: string): NoopControls {
+function createNoopControls(
+  label: string,
+  recorder: CallRecorder<SdkMethod>,
+  lifecycle: InstanceLifecycle,
+): NoopControls {
   return Object.freeze({
     isNoop: true as const,
     label,
-    recorder: createCallRecorder<SdkMethod>(),
+    recorder,
+    get revoked() {
+      return lifecycle.revoked;
+    },
+    unmount() {
+      lifecycle.revoke();
+    },
   });
 }
 
@@ -149,6 +187,18 @@ function createNoopControls(label: string): NoopControls {
  * recorded no-op (the no-op does not deliver — the fixture impl adds scripted
  * emissions); `events.on` records and returns a working {@link Unsubscribe} that
  * records `events.unsubscribe` on first call and is idempotent thereafter.
+ *
+ * ## Unmount hardening (SPEC §3 rule 6)
+ *
+ * Pass `opts.lifecycle` to make the members honor unmount: once its token is
+ * revoked ({@link NoopControls.unmount}), every gated call fails with a typed
+ * {@link InstanceGone} — async members (`records`, `net`, `settings.update`)
+ * *reject*, sync ones (`events`, `settings.get`/`onSchema`, `nav`, `telemetry`)
+ * *throw* — never hanging and never producing data, and every live `events.on`
+ * subscription is released (recording its `events.unsubscribe`). Omit
+ * `opts.lifecycle` (e.g. a caller that wraps its own revocation, like the
+ * conformance kit's reference host) and the members never revoke — behavior is
+ * exactly as before.
  */
 export function buildNoopMembers(
   recorder: CallRecorder<SdkMethod>,
@@ -157,18 +207,28 @@ export function buildNoopMembers(
     readonly settings: WidgetSettings;
     readonly instanceId: string;
     readonly widgetId: WidgetID;
+    /** The mount lifecycle the gated members guard against (SPEC §3 rule 6). */
+    readonly lifecycle?: InstanceLifecycle;
   },
 ): HostSDK {
+  // A caller that supplies no lifecycle (the conformance kit's reference host
+  // manages its own revocation) gets a permanently-live one, so the guards below
+  // are inert and behavior is unchanged.
+  const lifecycle = opts.lifecycle ?? createInstanceLifecycle(opts.instanceId);
+
   const records: HostSDK['records'] = Object.freeze({
     read(ref: RecordRef, readOpts?: ReadOptions): Promise<RecordData> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       recorder.record('records.read', readOpts === undefined ? [ref] : [ref, readOpts]);
       return Promise.resolve({ ref, fields: {} });
     },
     query(spec: QuerySpec): Promise<RecordData[]> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       recorder.record('records.query', [spec]);
       return Promise.resolve([]);
     },
     write(ref: RecordRef, patch: Patch): Promise<RecordData> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       recorder.record('records.write', [ref, patch]);
       return Promise.resolve({ ref, fields: {} });
     },
@@ -176,6 +236,7 @@ export function buildNoopMembers(
 
   const net: HostSDK['net'] = Object.freeze({
     fetch(req: ScopedRequest): Promise<ScopedResponse> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       recorder.record('net.fetch', [req]);
       return Promise.resolve(emptyResponse());
     },
@@ -183,47 +244,62 @@ export function buildNoopMembers(
 
   const events: HostSDK['events'] = Object.freeze({
     emit<T>(topic: TypedTopic<T>, payload: T): void {
+      lifecycle.assertLive();
       recorder.record('events.emit', [topic, payload]);
     },
     on<T>(topic: TypedTopic<T>, handler: (payload: T) => void): Unsubscribe {
+      lifecycle.assertLive();
       recorder.record('events.on', [topic, handler]);
       let active = true;
-      return () => {
+      let deregister: () => void = () => {};
+      const unsubscribe: Unsubscribe = () => {
         if (!active) return;
         active = false;
+        deregister();
         recorder.record('events.unsubscribe', [topic]);
       };
+      // Auto-unsubscribe on unmount: revoke() runs this teardown for any
+      // subscription the widget did not release itself (SPEC §3 rule 6).
+      deregister = lifecycle.onRevoke(unsubscribe);
+      return unsubscribe;
     },
   });
 
   const settings: HostSDK['settings'] = Object.freeze({
     get(): WidgetSettings {
+      lifecycle.assertLive();
       recorder.record('settings.get', []);
       return opts.settings;
     },
     update(patch: Partial<WidgetSettings>): Promise<void> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       recorder.record('settings.update', [patch]);
       return Promise.resolve();
     },
     onSchema(schema: JSONSchema): void {
+      lifecycle.assertLive();
       recorder.record('settings.onSchema', [schema]);
     },
   });
 
   const nav: HostSDK['nav'] = Object.freeze({
     open(target: RouteRef): void {
+      lifecycle.assertLive();
       recorder.record('nav.open', [target]);
     },
     toast(msg: Notice): void {
+      lifecycle.assertLive();
       recorder.record('nav.toast', [msg]);
     },
   });
 
   const telemetry: HostSDK['telemetry'] = Object.freeze({
     error(e: WidgetError): void {
+      lifecycle.assertLive();
       recorder.record('telemetry.error', [e]);
     },
     mark(name: string, ms: number): void {
+      lifecycle.assertLive();
       recorder.record('telemetry.mark', [name, ms]);
     },
   });
@@ -273,13 +349,17 @@ function emptyResponse(): ScopedResponse {
  * ```
  */
 export function createNoopSDK(options: NoopSDKOptions = {}): NoopSDK {
-  const controls = createNoopControls(options.label ?? 'gridmason-noop-sdk');
-  const members = buildNoopMembers(controls.recorder, {
+  const instanceId = options.instanceId ?? `dev-noop-${++instanceCounter}`;
+  const recorder = createCallRecorder<SdkMethod>();
+  const lifecycle = createInstanceLifecycle(instanceId);
+  const members = buildNoopMembers(recorder, {
     context: options.context ?? {},
     settings: options.settings ?? {},
-    instanceId: options.instanceId ?? `dev-noop-${++instanceCounter}`,
+    instanceId,
     widgetId: options.widgetId ?? { source: 'local', tag: 'noop-widget' },
+    lifecycle,
   });
+  const controls = createNoopControls(options.label ?? 'gridmason-noop-sdk', recorder, lifecycle);
 
   return Object.freeze({
     ...members,
