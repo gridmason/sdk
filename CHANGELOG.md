@@ -1,5 +1,26 @@
 # @gridmason/sdk
 
+## 0.4.0
+
+### Minor Changes
+
+- 518d427: Enforce `events:<ns>` capability gating end to end and strengthen the rule-4 host-conformance check.
+
+  The widget-side `emit`/`on` helpers — and the React, Vue, and vanilla adapters that re-export them — now carry the host's denial through faithfully: an out-of-namespace emit or subscribe fails with a typed `PermissionDenied`, never a silent no-op, never a delivered event, and (for subscribe) never a subscription tracked in the per-handle registry. `subscribe` now subscribes through the host before touching the registry so a denied subscribe leaks nothing.
+
+  The conformance kit's rule-4 check is strengthened beyond "the denial throws": it now asserts a denied out-of-namespace emit delivers _nothing_ to a live, legitimately-subscribed handler — no deliver-past-the-gate leak and no routing by topic name across namespaces ("never a delivered event", SPEC §6). The instrumented-failure fixture seeds a matching "denied but still delivered" leak the kit must catch.
+
+- c4e76f8: Add telemetry-attribution helpers (`attributeTelemetry`, `useTelemetry` for React/Vue). They read `sdk.identity` and stamp `instanceId` + `widgetId` onto every latency mark and error before forwarding to `sdk.telemetry`, plus a `time(name, op)` that measures an operation's latency — so a widget author never hand-threads identity. Documents the attributed mark/error shape a host aggregates per instance and per widget (docs/telemetry-attribution.md). Audit-trail surface (SPEC §2), not security enforcement: identity is read from the handle, never minted.
+- 8e84042: Add the per-instance remote-identity token contract (FR-8). New in `@gridmason/sdk`:
+  the opaque `InstanceToken` type (SDK-defined, shell-minted, never minted here), the
+  canonical `INSTANCE_TOKEN_HEADER` slot, the `InstanceTokenReader` closure type, the
+  pure `stampInstanceToken` header stamp (anti-spoof: overrides any widget-supplied
+  token header), and the `IdentityStamper` / `bindIdentityStamper` transport-attachment
+  API. The token lives in the transport closure (never on `HostSDK.identity`) and a
+  stamp on a revoked instance throws `InstanceGone`, tying the token to unmount
+  revocation. Ships no keys, no transport crypto, and no minting — the shell's Service
+  Worker proves the identity. See `docs/identity-token.md`.
+
 ## 0.3.0
 
 ### Minor Changes
