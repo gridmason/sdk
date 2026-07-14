@@ -31,7 +31,7 @@ const sdk = createFixtureSDK(
     events: [
       { topic: { ns: 'acme.sales', name: 'sale-selected' }, payload: { id: 'c1' }, delay: 100 },
     ],
-    context: { customer: { type: 'record-ref', recordType: 'customer' } },
+    context: { customer: { recordType: 'customer', id: 'c1' } },
   },
   { capabilities: ['records.read:recordType:customer', 'net:api.acme.com', 'events:acme.sales'] },
 );
@@ -49,7 +49,7 @@ apply — see below).
 | `records.query` | `QueryFixture[]` | `records.query(spec)` results, matched by pattern |
 | `net` | `NetFixture[]` | `net.fetch(req)` responses, matched by host/path/method |
 | `events` | `ScriptedEvent[]` | scripted host-side emissions to the widget's subscribers |
-| `context` | `ContextMap` | preset for `sdk.context` (overridden by `options.context`) |
+| `context` | `PageContext` | runtime slot-value preset for `sdk.context` (overridden by `options.context`) |
 
 ### `records.read` — `ReadFixture`
 

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
-import type { ContextMap, WidgetID } from '@gridmason/protocol';
+import type { PageContext, WidgetID } from '@gridmason/protocol';
 
 // Everything under test resolves through the package root barrel — proving the
 // `HostSDK` interface and the error surface are surfaced from `@gridmason/sdk`
@@ -27,8 +27,8 @@ import type {
  */
 
 describe('HostSDK interface shape (SPEC §3, compile-time)', () => {
-  test('context is typed against protocol context grammar (protocol#37 interim)', () => {
-    expectTypeOf<HostSDK['context']>().toEqualTypeOf<ContextMap>();
+  test('context is the protocol page-context value type (protocol#37, 0.0.3)', () => {
+    expectTypeOf<HostSDK['context']>().toEqualTypeOf<PageContext>();
   });
 
   test('identity.widgetId resolves to protocol WidgetID (no local copy)', () => {
