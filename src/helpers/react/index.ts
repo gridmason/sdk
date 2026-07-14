@@ -43,11 +43,12 @@ import type {
   WidgetSettings,
 } from '../../interface/index.js';
 import type { RecordStatus } from '../index.js';
-import { recordSource, settingsSource, subscribe } from '../index.js';
+import { recordSource, releaseInstance, settingsSource, subscribe } from '../index.js';
 
 // The framework-agnostic 1:1 wrappers need no React glue; re-export them so a
-// widget imports its whole helper set from `@gridmason/sdk/react`.
-export { emit, scopedFetch } from '../index.js';
+// widget imports its whole helper set from `@gridmason/sdk/react`. `releaseInstance`
+// is re-exported for a widget that wants to release every subscription itself.
+export { emit, releaseInstance, scopedFetch } from '../index.js';
 export type {
   ReactiveSource,
   RecordSnapshot,
@@ -185,6 +186,28 @@ export function on<T>(sdk: HostSDK, topic: TypedTopic<T>, handler: (payload: T) 
     // Re-subscribe only on identity change of the handle or the topic address, not
     // on every render (the topic object is often an inline literal).
   }, [sdk, topic.ns, topic.name]);
+}
+
+/**
+ * Release every helper `events` subscription for `sdk` when the component unmounts
+ * (SPEC §3 rule 6, widget side). Each {@link on} already releases its own
+ * subscription on unmount; this is the belt-and-braces seam for a widget that also
+ * subscribes imperatively (via the core `subscribe`) or wants one guaranteed
+ * teardown that leaves no subscriber behind. Call it once, unconditionally, at the
+ * top level of the widget's root component:
+ *
+ * ```tsx
+ * function Widget({ sdk }: { sdk: HostSDK }) {
+ *   useInstanceCleanup(sdk); // frees every helper subscription on unmount
+ *   // …
+ * }
+ * ```
+ *
+ * The host independently revokes the instance token on its side, so a stale call
+ * still rejects a typed `InstanceGone`; this releases the widget-side bookkeeping.
+ */
+export function useInstanceCleanup(sdk: HostSDK): void {
+  useEffect(() => () => releaseInstance(sdk), [sdk]);
 }
 
 // Re-exported so a widget can name the request/response types alongside scopedFetch

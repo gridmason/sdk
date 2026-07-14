@@ -51,8 +51,8 @@ import type {
   WidgetSettings,
 } from '../interface/index.js';
 import type { Capability, PageContext, WidgetID } from '../protocol/index.js';
-import { buildNoopMembers, createCallRecorder } from '../noop/index.js';
-import type { CallRecorder, SdkMethod } from '../noop/index.js';
+import { buildNoopMembers, createCallRecorder, createInstanceLifecycle } from '../noop/index.js';
+import type { CallRecorder, InstanceLifecycle, SdkMethod } from '../noop/index.js';
 
 import {
   eventsCapability,
@@ -230,6 +230,17 @@ export interface FixtureControls {
   readonly recorder: CallRecorder<SdkMethod>;
   /** The fixture map this handle serves. */
   readonly fixtures: FixtureFile;
+  /** `true` once {@link unmount} has been called — the handle is stale (SPEC §3 rule 6). */
+  readonly revoked: boolean;
+  /**
+   * Unmount this instance (SPEC §3 rule 6), exactly as {@link import('../noop/index.js').NoopControls.unmount}:
+   * revokes the per-instance token so every subsequent gated call rejects/throws a
+   * typed {@link import('../interface/index.js').InstanceGone} (never a hang, never
+   * data), and releases every `events.on` subscription registered through the
+   * handle from the fixture's in-memory bus (so a later scripted emission reaches
+   * none of them). Idempotent.
+   */
+  unmount(): void;
 }
 
 /**
@@ -297,6 +308,9 @@ export function createFixtureSDK(
   const scheduler = options.scheduler ?? defaultScheduler;
   const recorder = createCallRecorder<SdkMethod>();
   const instanceId = options.instanceId ?? `dev-fixture-${++instanceCounter}`;
+  // One lifecycle governs every member (SPEC §3 rule 6): unmount() revokes it, and
+  // both the reused no-op members and the fixture's own gated members guard on it.
+  const lifecycle = createInstanceLifecycle(instanceId);
 
   // Reuse the no-op core for the ungated members and the shared recorder; the
   // gated members (records/net/events) and data-bearing settings are overridden.
@@ -305,12 +319,13 @@ export function createFixtureSDK(
     settings: options.settings ?? {},
     instanceId,
     widgetId: options.widgetId ?? { source: 'local', tag: 'fixture-widget' },
+    lifecycle,
   });
 
-  const records = buildRecords(recorder, declared, instanceId, fixtures);
-  const net = buildNet(recorder, declared, instanceId, fixtures);
-  const events = buildEvents(recorder, declared, instanceId);
-  const settings = buildSettings(recorder, options.settings ?? {});
+  const records = buildRecords(recorder, declared, instanceId, fixtures, lifecycle);
+  const net = buildNet(recorder, declared, instanceId, fixtures, lifecycle);
+  const events = buildEvents(recorder, declared, instanceId, lifecycle);
+  const settings = buildSettings(recorder, options.settings ?? {}, lifecycle);
 
   // Schedule the fixture's scripted emissions. Subscribers register during the
   // widget's (synchronous) mount, which runs before any scheduled callback fires.
@@ -326,6 +341,12 @@ export function createFixtureSDK(
     label: options.label ?? 'gridmason-fixture-sdk',
     recorder,
     fixtures,
+    get revoked() {
+      return lifecycle.revoked;
+    },
+    unmount() {
+      lifecycle.revoke();
+    },
   });
 
   return Object.freeze({
@@ -351,9 +372,14 @@ function buildRecords(
   declared: readonly NormalizedCapability[],
   instanceId: string,
   fixtures: FixtureFile,
+  lifecycle: InstanceLifecycle,
 ): HostSDK['records'] {
   return Object.freeze({
     read(ref: RecordRef, opts?: ReadOptions): Promise<RecordData> {
+      // Deadness dominates: a revoked handle rejects InstanceGone before the
+      // capability check, so a stale call never resolves and never leaks whether
+      // it would have been allowed (SPEC §3 rule 6).
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       const required = readCapability(ref.recordType);
       if (!isGranted(declared, required)) {
         recorder.record('records.read', readArgs(ref, opts), metaDenied(required));
@@ -370,6 +396,7 @@ function buildRecords(
       return Promise.resolve({ ref, fields: {} });
     },
     query(spec: QuerySpec): Promise<RecordData[]> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       const required = readCapability(spec.recordType);
       if (!isGranted(declared, required)) {
         recorder.record('records.query', [spec], metaDenied(required));
@@ -386,6 +413,7 @@ function buildRecords(
       return Promise.resolve([]);
     },
     write(ref: RecordRef, patch: Patch): Promise<RecordData> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       const required = writeCapability(ref.recordType);
       if (!isGranted(declared, required)) {
         recorder.record('records.write', [ref, patch], metaDenied(required));
@@ -406,9 +434,11 @@ function buildNet(
   declared: readonly NormalizedCapability[],
   instanceId: string,
   fixtures: FixtureFile,
+  lifecycle: InstanceLifecycle,
 ): HostSDK['net'] {
   return Object.freeze({
     fetch(req: ScopedRequest): Promise<ScopedResponse> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       const required = netCapability(req.host);
       if (!isGranted(declared, required)) {
         recorder.record('net.fetch', [req], metaDenied(required));
@@ -472,6 +502,7 @@ function buildEvents(
   recorder: CallRecorder<SdkMethod>,
   declared: readonly NormalizedCapability[],
   instanceId: string,
+  lifecycle: InstanceLifecycle,
 ): { bus: HostSDK['events']; deliver: (ns: string, name: string, payload: unknown) => void } {
   const subscribers = new Set<Subscription>();
 
@@ -483,6 +514,7 @@ function buildEvents(
 
   const bus: HostSDK['events'] = Object.freeze({
     emit<T>(topic: TypedTopic<T>, payload: T): void {
+      lifecycle.assertLive();
       const required = eventsCapability(topic.ns);
       if (!isGranted(declared, required)) {
         recorder.record('events.emit', [topic, payload], metaDenied(required));
@@ -492,6 +524,7 @@ function buildEvents(
       deliver(topic.ns, topic.name, payload);
     },
     on<T>(topic: TypedTopic<T>, handler: (payload: T) => void): Unsubscribe {
+      lifecycle.assertLive();
       const required = eventsCapability(topic.ns);
       if (!isGranted(declared, required)) {
         recorder.record('events.on', [topic, handler], metaDenied(required));
@@ -504,12 +537,19 @@ function buildEvents(
       };
       subscribers.add(sub);
       let active = true;
-      return () => {
+      let deregister: () => void = () => {};
+      const unsubscribe: Unsubscribe = () => {
         if (!active) return;
         active = false;
+        deregister();
         subscribers.delete(sub);
         recorder.record('events.unsubscribe', [topic]);
       };
+      // Auto-unsubscribe on unmount: revoke() runs this teardown, dropping the
+      // subscriber from the bus so a later (e.g. scripted) emission reaches it no
+      // more (SPEC §3 rule 6).
+      deregister = lifecycle.onRevoke(unsubscribe);
+      return unsubscribe;
     },
   });
 
@@ -524,19 +564,23 @@ function buildEvents(
 function buildSettings(
   recorder: CallRecorder<SdkMethod>,
   initial: WidgetSettings,
+  lifecycle: InstanceLifecycle,
 ): HostSDK['settings'] {
   let current: WidgetSettings = { ...initial };
   return Object.freeze({
     get(): WidgetSettings {
+      lifecycle.assertLive();
       recorder.record('settings.get', []);
       return current;
     },
     update(patch: Partial<WidgetSettings>): Promise<void> {
+      if (lifecycle.revoked) return Promise.reject(lifecycle.gone());
       recorder.record('settings.update', [patch]);
       current = { ...current, ...patch };
       return Promise.resolve();
     },
     onSchema(schema: JSONSchema): void {
+      lifecycle.assertLive();
       recorder.record('settings.onSchema', [schema]);
     },
   });

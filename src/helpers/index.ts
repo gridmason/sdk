@@ -88,13 +88,31 @@ export function emit<T>(sdk: HostSDK, topic: TypedTopic<T>, payload: T): void {
  * an effect and calls the returned unsubscribe on unmount); a vanilla widget can
  * call it directly and unsubscribe itself. The host also releases the subscription
  * on unmount regardless (SPEC §3 rule 6).
+ *
+ * The subscription is also registered in a per-handle registry so {@link releaseInstance}
+ * can release **every** helper subscription for a handle in one call — the widget-side
+ * half of rule 6 that each framework adapter wires to its unmount (React/Vue via
+ * {@link import('./react/index.js').useInstanceCleanup}/{@link import('./vue/index.js').useInstanceCleanup},
+ * vanilla by calling `releaseInstance` from its teardown). The returned unsubscribe
+ * deregisters itself, so a manual unsubscribe is never re-run by `releaseInstance`;
+ * both are idempotent.
  */
 export function subscribe<T>(
   sdk: HostSDK,
   topic: TypedTopic<T>,
   handler: (payload: T) => void,
 ): Unsubscribe {
-  return sdk.events.on(topic, handler);
+  const store = storeFor(sdk);
+  const raw = sdk.events.on(topic, handler);
+  let released = false;
+  const release: Unsubscribe = () => {
+    if (released) return;
+    released = true;
+    store.subscriptions.delete(release);
+    raw();
+  };
+  store.subscriptions.add(release);
+  return release;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -340,6 +358,12 @@ function createSettingsSource(sdk: HostSDK): SettingsSource {
 interface HelperStore {
   readonly records: RecordCache;
   settings: SettingsSource | undefined;
+  /**
+   * Every live `events` subscription registered through {@link subscribe} for this
+   * handle, keyed by its own release fn (which deregisters itself when run). The
+   * set {@link releaseInstance} drains on framework unmount (SPEC §3 rule 6).
+   */
+  readonly subscriptions: Set<Unsubscribe>;
 }
 
 const stores = new WeakMap<HostSDK, HelperStore>();
@@ -347,10 +371,34 @@ const stores = new WeakMap<HostSDK, HelperStore>();
 function storeFor(sdk: HostSDK): HelperStore {
   let store = stores.get(sdk);
   if (store === undefined) {
-    store = { records: createRecordCache(), settings: undefined };
+    store = { records: createRecordCache(), settings: undefined, subscriptions: new Set() };
     stores.set(sdk, store);
   }
   return store;
+}
+
+/**
+ * Release every `events` subscription this helper layer registered through the
+ * handle (SPEC §3 rule 6, widget side). This is what a framework adapter calls on
+ * unmount so no subscriber survives the widget that created it: React and Vue wire
+ * it through {@link import('./react/index.js').useInstanceCleanup} /
+ * {@link import('./vue/index.js').useInstanceCleanup}, and a vanilla widget calls it
+ * directly from its own teardown.
+ *
+ * Idempotent and safe to call on a handle with no tracked subscriptions (a no-op).
+ * It releases only the *helper* subscription bookkeeping — the host still revokes
+ * the per-instance token on its side (a stale call then rejects a typed
+ * {@link import('../interface/index.js').InstanceGone}); the two halves together are
+ * rule 6. Each release runs the underlying `sdk.events.on` unsubscribe, which is
+ * itself idempotent, so a subscription the widget already released is not
+ * double-released.
+ */
+export function releaseInstance(sdk: HostSDK): void {
+  const store = stores.get(sdk);
+  if (store === undefined) return;
+  // Snapshot: each release deregisters itself from the set as it runs.
+  for (const release of [...store.subscriptions]) release();
+  store.subscriptions.clear();
 }
 
 /**

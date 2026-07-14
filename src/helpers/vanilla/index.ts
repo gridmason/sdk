@@ -23,6 +23,10 @@
  * and {@link on} return an {@link Unsubscribe} the caller invokes itself. (The host
  * also releases every `events` subscription on unmount regardless, SPEC §3 rule 6 —
  * so a leaked `on` is bounded, but a well-behaved widget still unsubscribes.)
+ *
+ * For a single teardown that releases *every* subscription the widget opened
+ * through the helpers at once, call the re-exported `releaseInstance(sdk)` when the
+ * widget is removed — the vanilla equivalent of React/Vue's `useInstanceCleanup`.
  */
 
 import type {
@@ -40,7 +44,10 @@ import { recordSource, settingsSource } from '../index.js';
 // so a widget imports its whole helper set from `@gridmason/sdk/vanilla`. `subscribe`
 // is re-exported as `on` — the vanilla event helper *is* the caller-managed
 // subscription, returning the Unsubscribe (no lifecycle wrapper to add).
-export { emit, scopedFetch, subscribe as on } from '../index.js';
+// `releaseInstance` is the one-call teardown a vanilla widget runs when it is
+// removed, to release every subscription it opened through the helpers at once
+// (SPEC §3 rule 6, widget side — see the lifecycle note below).
+export { emit, releaseInstance, scopedFetch, subscribe as on } from '../index.js';
 export type {
   ReactiveSource,
   RecordSnapshot,
