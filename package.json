@@ -1,6 +1,6 @@
 {
   "name": "@gridmason/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Gridmason host-SDK interface + widget-side helper library: the capability-scoped chokepoint a host implements and a widget author imports. All widget I/O flows through it.",
   "license": "AGPL-3.0-only",
   "repository": {
