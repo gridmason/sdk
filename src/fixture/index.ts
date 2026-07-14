@@ -50,7 +50,7 @@ import type {
   Unsubscribe,
   WidgetSettings,
 } from '../interface/index.js';
-import type { Capability, ContextMap, WidgetID } from '../protocol/index.js';
+import type { Capability, PageContext, WidgetID } from '../protocol/index.js';
 import { buildNoopMembers, createCallRecorder } from '../noop/index.js';
 import type { CallRecorder, SdkMethod } from '../noop/index.js';
 
@@ -260,7 +260,7 @@ export interface FixtureSDKOptions {
   /** Initial settings `settings.get()` returns; `settings.update()` persists onto them. */
   readonly settings?: WidgetSettings;
   /** Page context exposed as `sdk.context`; overrides the fixture file's `context`. */
-  readonly context?: ContextMap;
+  readonly context?: PageContext;
   /** The {@link FixtureControls} label. Defaults to `gridmason-fixture-sdk`. */
   readonly label?: string;
   /** Scheduler for scripted `events` emissions. Defaults to `setTimeout`. */

@@ -110,12 +110,12 @@ describe('createNoopSDK — typed-empty defaults', () => {
     const custom = createNoopSDK({
       instanceId: 'inst-42',
       widgetId: { source: 'local', tag: 'acme-chart' },
-      context: { customer: { type: 'record-ref', recordType: 'customer' } },
+      context: { customer: { recordType: 'customer', id: 'c1' } },
     });
     expect(custom.identity.instanceId).toBe('inst-42');
     expect(custom.identity.widgetId).toEqual({ source: 'local', tag: 'acme-chart' });
     expect(custom.context).toEqual({
-      customer: { type: 'record-ref', recordType: 'customer' },
+      customer: { recordType: 'customer', id: 'c1' },
     });
   });
 

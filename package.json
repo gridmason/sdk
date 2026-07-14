@@ -85,7 +85,7 @@
     "vitest": "4.1.10"
   },
   "dependencies": {
-    "@gridmason/protocol": "^0.0.2"
+    "@gridmason/protocol": "^0.0.3"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

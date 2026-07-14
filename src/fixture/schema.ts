@@ -44,7 +44,7 @@ import type {
   RecordRef,
   ScopedRequest,
 } from '../interface/index.js';
-import type { ContextMap } from '../protocol/index.js';
+import type { PageContext } from '../protocol/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixture file schema (the JSON an author writes)
@@ -63,11 +63,11 @@ export interface FixtureFile {
   /** Scripted host-side emissions delivered to the widget's subscribers. */
   readonly events?: readonly ScriptedEvent[];
   /**
-   * A page-context preset exposed as `sdk.context` (the declared context-slot
-   * grammar — protocol §3.2). An `options.context` passed to `createFixtureSDK`
-   * overrides this.
+   * A page-context preset exposed as `sdk.context` (the runtime slot *values* a
+   * mounted widget receives — a {@link PageContext}, protocol §3.2). An
+   * `options.context` passed to `createFixtureSDK` overrides this.
    */
-  readonly context?: ContextMap;
+  readonly context?: PageContext;
 }
 
 /** The record side of a fixture file: reads keyed by ref, queries by pattern. */

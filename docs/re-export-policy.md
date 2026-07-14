@@ -20,21 +20,23 @@ package root, so an author reaches the re-exported names from `@gridmason/sdk`.
 `package.json` declares:
 
 ```jsonc
-"dependencies": { "@gridmason/protocol": "^0.0.2" }
+"dependencies": { "@gridmason/protocol": "^0.0.3" }
 ```
 
 It is the SDK's **only** runtime dependency (SPEC §7 — no `core`, no registry, no
-host). The pin is `^0.0.2` for two reasons:
+host). The pin moved from `^0.0.2` to `^0.0.3` to consume the page-context
+**value** type (`PageContext`) protocol published for `HostSDK.context`
+(gridmason/protocol#37). The reason the pin is an exact `^0.0.z` caret, not a
+float, is unchanged:
 
-- **Org consistency.** The other `@gridmason/protocol` consumers (`core`, `cli`)
-  declare the identical `^0.0.2` range; the supply chain reads the same
-  everywhere.
 - **Deliberate, not floating, bumps.** Under npm semver a `^0.0.z` caret resolves
-  to `>=0.0.2 <0.0.3` — it does **not** float `0.0.x` patches or `0.x` minors. In
+  to `>=0.0.3 <0.0.4` — it does **not** float `0.0.x` patches or `0.x` minors. In
   0.x every changesets release may carry a breaking change (0.x has no stability
   guarantee), and gridmason is contract-first: a dependent adopts a new protocol
-  by bumping its pin **on its own cadence** with a changeset, never silently.
-  When protocol publishes `0.0.3`, the SDK opts in explicitly.
+  by bumping its pin **on its own cadence** with a changeset, never silently. The
+  SDK opted into `0.0.3` this way (this doc's issue); `core`/`cli` bump when they
+  each need a `0.0.3` type, so protocol-range parity across the org is eventual,
+  not lockstep.
 
 ## What the SDK re-exports (author-facing, via `@gridmason/sdk`)
 
@@ -45,7 +47,8 @@ alias below is a pure rename, documented as such).
 |---|---|---|
 | `WidgetID` | identity, §3.3 | the per-mount identity an author reads off `sdk.identity.widgetId` (`{ source, tag }`) |
 | `WidgetId` *(alias → `WidgetID`)* | — | SPEC §3 spells it `WidgetId`; the alias bridges the spelling to the same protocol type (see below) |
-| `ContextMap`, `ContextType`, and its members (`PrimitiveContextType`, `CompositeContextType`, `RecordRefContextType`, `StringContextType`, `NumberContextType`, `BoolContextType`, `IdContextType`, `ListContextType`, `ObjectContextType`) | context, §3.2 | the declared **shape** of context slots — what an author needs to reason about `sdk.context` |
+| `ContextMap`, `ContextType`, and its members (`PrimitiveContextType`, `CompositeContextType`, `RecordRefContextType`, `StringContextType`, `NumberContextType`, `BoolContextType`, `IdContextType`, `ListContextType`, `ObjectContextType`) | context, §3.2 | the declared **shape** of context slots — what an author needs to reason about the *declared* context (a page-type's provided context / a widget's `requiresContext`) |
+| `PageContext`, `ContextValue`, `RecordRefValue`, `ObjectValue` | context, §3.2 | the runtime **values** an author reads off `sdk.context` — `PageContext` is `HostSDK.context`'s type (the value side of `ContextMap`); `ContextValue` (with `RecordRefValue`/`ObjectValue`) is a single slot's value |
 | `Capability`, `CapabilityApi`, `CapabilityError` | manifest/capability, §3.1 | the capability-grammar **types** an author sees when declaring/handling capabilities |
 | `CAPABILITY_APIS` *(value)* | manifest/capability, §3.1 | the canonical, closed v1 api enumeration `CapabilityApi` is the union of |
 
@@ -57,7 +60,7 @@ through `@gridmason/sdk`, so the author API stays small and intentional.
 
 | Name(s) | Protocol origin | Consumed by / role |
 |---|---|---|
-| `isContextSubset` | context, §3.2 | `requiresContext ⊆ pageContext` gating — a host/picker concern, not widget code |
+| `isContextSubset`, `matchesContextType`, `matchesContextMap` | context, §3.2 | context conformance gating — `isContextSubset` relates two `ContextMap` declarations (`requiresContext ⊆ pageContext`); `matchesContextType`/`matchesContextMap` are its runtime counterpart, checking a `PageContext` **value** against a declared `ContextMap`. All host/picker concerns, not widget code |
 | `parseCapability`, `validateCapability`, `formatCapability`, `CapabilityParseResult`, `ParsedCapability` | manifest/capability, §3.1 | capability **enforcement** utilities the gated `records`/`net` call sites (#5) run |
 | `SourceKind`, `ParsedSource`, `parseSource`, `sourceKind`, `canonicalSource`, `sourcesEqual`, `compareSources`, `widgetIdEqual`, `compareWidgetIds`, `widgetIdKey`, `LOCAL_SOURCE`, `SIDELOAD_PREFIX` | identity, §3.3 | `source` parsing / identity comparison — host/registry concerns |
 | `Manifest`, `ManifestKind`, `ManifestSize`, `GridSize`, `ManifestRequirement`, `ManifestContextRequirement`, `PageTypeDescriptor`, `lintTag`, `TagLintResult`, `TagViolation`, `TagViolationCode` | manifest, §3.1 | manifest authoring/lint — owned by the CLI and registry, not the SDK surface |
@@ -86,26 +89,31 @@ adds `export type WidgetId = WidgetID` — a pure spelling alias to the same
 declaration. Prefer `WidgetID` (protocol's own name) in new code; the alias
 exists so SPEC-literal code (e.g. #5's interface as written) still resolves.
 
-### No `PageContext` in protocol 0.0.2 — a gap #5 depends on
+### `PageContext` — the runtime value type (protocol 0.0.3)
 
-SPEC §3's interface has `context: PageContext` annotated "(protocol §3.2)". As of
-`@gridmason/protocol@0.0.2` **there is no type named `PageContext`.** Protocol
-§3.2 publishes the context **type grammar** — `ContextMap` / `ContextType` — which
-describes the declared *shape* of context slots (a page-type's provided context
-and a widget's `requiresContext`, both `ContextMap`s, related by
-`isContextSubset`). That is a *declaration* vocabulary, not a runtime
-page-context **value** type keyed by slot name (what `sdk.context.record` in
-SPEC §4 reads).
+SPEC §3's interface has `context: PageContext` annotated "(protocol §3.2)".
+Protocol §3.2 publishes **two** related surfaces, and keeping them apart is
+load-bearing:
 
-Consequences, so #5 does not guess:
+- the context **type grammar** — `ContextMap` / `ContextType` — the declared
+  *shape* of context slots (a page-type's provided context and a widget's
+  `requiresContext`, both `ContextMap`s, related by `isContextSubset`). A
+  *declaration* vocabulary.
+- the context **value** type — `PageContext` — the slot-name → `ContextValue`
+  mapping a host actually provides for a mount (what `sdk.context.record` in
+  SPEC §4 reads). Its members are `ContextValue` (a `RecordRefValue`, string,
+  number, boolean, list, or nested `ObjectValue`); `matchesContextMap` relates a
+  `PageContext` value to the `ContextMap` a declaration carries.
 
-- The SDK does **not** define a local `PageContext` — that would be exactly the
-  duplicated contract type this policy forbids. This issue re-exports the context
-  *type grammar* protocol actually ships.
-- When #5 types `HostSDK.context`, it must resolve the type from
-  `@gridmason/protocol`. If a runtime page-context **value** type is required and
-  protocol still ships only the type grammar, that is a **protocol contract gap**:
-  #5 should file a cross-repo issue against `gridmason/protocol` (reference SPEC
-  §3.2 and FR-1) requesting the runtime page-context value type, rather than
-  minting a `PageContext` in the SDK. Until then, `context` types against the
-  grammar protocol publishes (`ContextMap`).
+`@gridmason/protocol@0.0.2` shipped only the grammar, so `HostSDK.context` was
+typed against `ContextMap` as a documented interim (cross-repo request
+gridmason/protocol#37). `0.0.3` resolved that gap, and this is where it landed:
+
+- `HostSDK.context` is a `PageContext`, resolved from `@gridmason/protocol` — the
+  SDK never mints a local `PageContext` (that would be exactly the duplicated
+  contract type this policy forbids).
+- `PageContext`, `ContextValue`, `RecordRefValue`, and `ObjectValue` are
+  re-exported author-facing (an author reads them off `sdk.context`); the
+  value-side conformance helpers `matchesContextType`/`matchesContextMap` stay
+  internal, mirroring `isContextSubset` (host/picker enforcement, not widget
+  code).

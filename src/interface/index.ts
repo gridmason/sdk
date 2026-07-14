@@ -16,8 +16,8 @@
  *
  * Shared contract types have exactly one definition — `@gridmason/protocol`'s —
  * so the same rules gate the picker (core §6) and every SDK call (SPEC §6). This
- * file **never** redefines one: `WidgetId` and the page-context grammar
- * (`ContextMap`) come from the sibling re-export barrel `../protocol/index.js`.
+ * file **never** redefines one: `WidgetId` and the page-context value type
+ * (`PageContext`) come from the sibling re-export barrel `../protocol/index.js`.
  *
  * Everything else the interface names (`RecordRef`, `RecordData`, `QuerySpec`,
  * `Patch`, `ScopedRequest`, `ScopedResponse`, `TypedTopic`, `WidgetSettings`,
@@ -38,7 +38,7 @@
  *   SDK-owned {@link ScopedResponse} instead.
  */
 
-import type { ContextMap, WidgetId } from '../protocol/index.js';
+import type { PageContext, WidgetId } from '../protocol/index.js';
 
 export * from './errors.js';
 
@@ -49,8 +49,9 @@ export * from './errors.js';
 /**
  * A reference to a single host record: its host-declared `recordType` (the same
  * opaque domain vocabulary protocol's `RecordRefContextType` carries — SPEC
- * §3.2) plus the record's `id`. The value-side counterpart a widget reads off
- * `sdk.context` (e.g. `sdk.context.record`) and passes to `records.read`.
+ * §3.2) plus the record's `id`. Structurally the SDK's counterpart of protocol's
+ * `RecordRefValue`, the record-ref value a widget reads off `sdk.context` (e.g.
+ * `sdk.context.record`) and passes straight to `records.read`.
  */
 export interface RecordRef {
   /** Host-declared record kind (`customer`, `team`, …); matched by equality. */
@@ -335,17 +336,16 @@ export interface HostSDK {
 
   /**
    * The typed context of the page this widget is mounted on (SPEC §3.2) — the
-   * slot values the host provides for this mount (e.g. the record a
-   * record-scoped page is showing).
+   * slot *values* the host provides for this mount (e.g. the {@link RecordRef}-shaped
+   * `RecordRefValue` a record-scoped page is showing), keyed by slot name.
    *
-   * TODO(gridmason/protocol#37): `@gridmason/protocol@0.0.2` ships only the
-   * context *type grammar* (`ContextMap` / `ContextType` — the declared shape of
-   * context slots), not a runtime page-context *value* type. Per
-   * docs/re-export-policy.md the SDK must not mint a local `PageContext`, so
-   * `context` is typed against the grammar (`ContextMap`) as an interim. When
-   * protocol publishes the value type (issue #37), retype this to it.
+   * A {@link PageContext} (`@gridmason/protocol` §3.2) — the value-side
+   * counterpart of the `ContextMap` type grammar a page-type declares. Protocol
+   * owns this shared contract type (the SDK never mints a local one); `matchesContextMap`
+   * relates a `PageContext` value to the `ContextMap` a widget's `requiresContext`
+   * declares (a host/picker concern, not a widget one).
    */
-  readonly context: ContextMap;
+  readonly context: PageContext;
 
   /** Per-instance settings: read, persist, and register a settings form. */
   readonly settings: {

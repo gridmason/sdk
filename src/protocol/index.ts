@@ -21,12 +21,14 @@
  *   `WidgetId`; `@gridmason/protocol` publishes it as `WidgetID`. This module
  *   re-exports the real `WidgetID` and adds a `WidgetId` type alias to it — a
  *   pure spelling bridge to the same `{ source, tag }` type, not a copy.
- * - **No `PageContext` in protocol 0.0.2.** SPEC §3's `context: PageContext`
- *   (annotated "protocol §3.2") maps to protocol's *context-type grammar*
- *   (`ContextMap` / `ContextType`), which describes the shape of declared
- *   context slots, not a runtime page-context *value* type. Protocol 0.0.2 ships
- *   no type named `PageContext`; see the policy doc for how #5 should resolve
- *   `context`'s type and the cross-repo note it depends on.
+ * - **The page-context grammar and its runtime values are distinct.**
+ *   `ContextMap` / `ContextType` (protocol §3.2) declare the *shape* of context
+ *   slots — a page-type's provided context and a widget's `requiresContext`.
+ *   `PageContext` (published by `@gridmason/protocol@0.0.3`, gridmason/protocol#37)
+ *   is the *value* side: the slot values `SPEC §3`'s `context: PageContext`
+ *   carries. Both grammars and values are re-exported below; the value-side
+ *   conformance helpers (`matchesContextType`/`matchesContextMap`) stay internal,
+ *   like `isContextSubset` — see the policy doc.
  */
 
 // ── Per-mount widget identity (protocol §3.3; SPEC §3 `HostSDK.identity`) ──
@@ -51,8 +53,7 @@ export type WidgetId = WidgetID;
 // The declared *shape* of context slots: a page-type declares the context it
 // provides and a widget declares the context it requires, both as `ContextMap`s;
 // `isContextSubset` (consumed internally, not re-exported) relates them. These
-// are the types a widget author needs to reason about `sdk.context`. Protocol
-// 0.0.2 ships no runtime `PageContext` *value* type — see the policy doc.
+// are the types a widget author needs to reason about the *declared* context.
 export type {
   BoolContextType,
   CompositeContextType,
@@ -65,6 +66,23 @@ export type {
   PrimitiveContextType,
   RecordRefContextType,
   StringContextType,
+} from '@gridmason/protocol';
+
+// ── Page-context runtime values (protocol §3.2; SPEC §3 `HostSDK.context`) ──
+// The *value* side of the grammar above, published by `@gridmason/protocol@0.0.3`
+// (gridmason/protocol#37). `HostSDK.context` is a `PageContext` — a map of slot
+// keys to `ContextValue`s (a `RecordRefValue`, string, number, boolean, list, or
+// nested `ObjectValue`); an author reads these values off `sdk.context`, so the
+// value types are author-facing and re-exported alongside the grammar. The
+// value-side conformance helpers `matchesContextType` / `matchesContextMap` (the
+// runtime counterpart of `isContextSubset`) are host/picker enforcement, not
+// widget code — they stay off the author surface (import them from
+// `@gridmason/protocol` directly). See the policy doc.
+export type {
+  ContextValue,
+  ObjectValue,
+  PageContext,
+  RecordRefValue,
 } from '@gridmason/protocol';
 
 // ── Capability grammar (protocol §3.1; SPEC §6) ──

@@ -49,7 +49,7 @@ import type {
   WidgetError,
   WidgetSettings,
 } from '../interface/index.js';
-import type { ContextMap, WidgetID } from '../protocol/index.js';
+import type { PageContext, WidgetID } from '../protocol/index.js';
 
 import type { CallRecorder, SdkMethod } from './recorder.js';
 import { createCallRecorder } from './recorder.js';
@@ -110,9 +110,9 @@ export interface NoopSDKOptions {
   readonly widgetId?: WidgetID;
   /**
    * The page context exposed as `sdk.context`. Defaults to an empty
-   * {@link ContextMap}; pass one to mount a widget against a specific context.
+   * {@link PageContext}; pass one to mount a widget against specific slot values.
    */
-  readonly context?: ContextMap;
+  readonly context?: PageContext;
   /**
    * The settings `settings.get()` returns. Defaults to empty. The no-op does not
    * persist `settings.update()` — it records and resolves; use the fixture impl
@@ -153,7 +153,7 @@ function createNoopControls(label: string): NoopControls {
 export function buildNoopMembers(
   recorder: CallRecorder<SdkMethod>,
   opts: {
-    readonly context: ContextMap;
+    readonly context: PageContext;
     readonly settings: WidgetSettings;
     readonly instanceId: string;
     readonly widgetId: WidgetID;
