@@ -190,3 +190,19 @@ export function on<T>(sdk: HostSDK, topic: TypedTopic<T>, handler: (payload: T) 
 // Re-exported so a widget can name the request/response types alongside scopedFetch
 // without a second import path.
 export type { ScopedRequest, ScopedResponse };
+
+// The settings-form helper's React binding (FR-6): `useSettingsForm` renders a
+// schema-only widget's settings form through a host-supplied `SettingsFormAdapter`.
+// The contract/compiler/controller are framework-agnostic (`@gridmason/sdk` root);
+// this is the React reference binding. The SDK ships no field UI — the stub adapter
+// is a dev/test artifact, not re-exported here (SPEC non-goals §1).
+export { useSettingsForm } from '../settings-form/react.js';
+export type {
+  FieldControl,
+  FieldModel,
+  FieldOption,
+  FieldRenderProps,
+  FormRenderProps,
+  SettingsFormAdapter,
+  SettingsFormController,
+} from '../settings-form/react.js';
