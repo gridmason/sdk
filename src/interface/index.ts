@@ -41,6 +41,11 @@
 import type { PageContext, WidgetId } from '../protocol/index.js';
 
 export * from './errors.js';
+// The per-instance remote-identity contract (FR-8, SPEC §2/§6): the opaque
+// `InstanceToken`, its header slot, and the pure transport-attachment mechanics.
+// The token is held in the transport closure and is deliberately absent from
+// `HostSDK.identity` below (closure-holding rules — see ./identity.ts).
+export * from './identity.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data-access vocabulary (records + net)
@@ -261,8 +266,11 @@ export interface WidgetError {
  * 2. `net.fetch` reaches only hosts the widget declared (`net:<host>`); there is
  *    no unscoped fetch on the handle.
  * 3. Every outbound call carries the per-instance remote-identity binding; a
- *    host that drops it fails conformance. (The SDK defines *what* identity is
- *    stamped; the shell's Service Worker does the stamping — SPEC §6.)
+ *    host that drops it fails conformance. The SDK defines *what* is stamped and
+ *    *where* — the opaque {@link InstanceToken} held in the transport closure,
+ *    attached under {@link INSTANCE_TOKEN_HEADER} via {@link bindIdentityStamper}
+ *    (./identity.ts, FR-8) — while the shell's Service Worker proves it
+ *    (SPEC §2, §6).
  * 4. `events` topics are typed and namespaced; a widget cannot subscribe to a
  *    topic whose `events:<ns>` it lacks. The bus is same-document, in-memory,
  *    host-mediated — never a shared global.
@@ -385,6 +393,13 @@ export interface HostSDK {
   /**
    * The identity of **this** mount (rule 5) — opaque to the widget, used by the
    * helper layer. Two mounts of the same widget carry distinct `instanceId`s.
+   *
+   * This is the *public* per-mount identity. The unforgeable per-instance
+   * {@link InstanceToken} the transport stamps on every outbound call is
+   * deliberately **not** here: it lives in the transport closure, never on a
+   * surface widget code can reach (the closure-holding rules — ./identity.ts,
+   * SPEC §2). `instanceId` is the value a conforming host's stamped binding is
+   * attributed to (rule 3).
    */
   readonly identity: {
     /** Unique per-mount identifier. */
