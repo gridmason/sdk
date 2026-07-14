@@ -42,14 +42,20 @@ import type {
   TypedTopic,
   WidgetSettings,
 } from '../../interface/index.js';
-import type { RecordStatus } from '../index.js';
-import { recordSource, releaseInstance, settingsSource, subscribe } from '../index.js';
+import type { AttributedTelemetry, RecordStatus } from '../index.js';
+import { attributeTelemetry, recordSource, releaseInstance, settingsSource, subscribe } from '../index.js';
 
-// The framework-agnostic 1:1 wrappers need no React glue; re-export them so a
-// widget imports its whole helper set from `@gridmason/sdk/react`. `releaseInstance`
-// is re-exported for a widget that wants to release every subscription itself.
-export { emit, releaseInstance, scopedFetch } from '../index.js';
+// The framework-agnostic 1:1 wrappers and the attribution facade need no React
+// glue; re-export them so a widget imports its whole helper set from
+// `@gridmason/sdk/react`. `releaseInstance` is re-exported for a widget that wants
+// to release every subscription itself; `attributeTelemetry` for a widget that
+// wants the facade outside a component (the `useTelemetry` hook is the in-component
+// form).
+export { attributeTelemetry, emit, releaseInstance, scopedFetch } from '../index.js';
 export type {
+  AttributedError,
+  AttributedMark,
+  AttributedTelemetry,
   ReactiveSource,
   RecordSnapshot,
   RecordSource,
@@ -208,6 +214,32 @@ export function on<T>(sdk: HostSDK, topic: TypedTopic<T>, handler: (payload: T) 
  */
 export function useInstanceCleanup(sdk: HostSDK): void {
   useEffect(() => () => releaseInstance(sdk), [sdk]);
+}
+
+/**
+ * The attributed telemetry surface for this mount (SPEC §3 telemetry/identity, §2
+ * audit trail) — the React form of {@link import('../index.js').attributeTelemetry}.
+ * Returns the {@link AttributedTelemetry} facade whose `mark`/`error` stamp the
+ * handle's `instanceId` + `widgetId` before forwarding to `sdk.telemetry`, and
+ * whose `time` measures an operation's latency — so a widget author reports an
+ * error or times an operation without hand-threading identity.
+ *
+ * The facade is stable per handle (the core caches it), so it is safe in effect
+ * deps and as a stored reporter; this hook is a thin, render-safe accessor and
+ * holds no React state of its own.
+ *
+ * ```tsx
+ * const telemetry = useTelemetry(sdk);
+ * useEffect(() => {
+ *   const t0 = performance.now();
+ *   return () => telemetry.mark('mounted-ms', performance.now() - t0);
+ * }, [telemetry]);
+ * // on a caught render/fetch failure:
+ * telemetry.error({ message: err.message, name: err.name });
+ * ```
+ */
+export function useTelemetry(sdk: HostSDK): AttributedTelemetry {
+  return attributeTelemetry(sdk);
 }
 
 // Re-exported so a widget can name the request/response types alongside scopedFetch

@@ -111,14 +111,25 @@ let instanceCounter = 0;
  * returns and the ungated members come from the no-op reference impl; this wraps
  * them with capability intersection, remote-identity stamping, a host-mediated
  * event bus, and unmount revocation.
+ *
+ * `opts.eventLeak` seeds a subtler rule-4 breach than disabling the gate: the host
+ * still *denies* an out-of-namespace subscribe/emit (so the denial assertions pass),
+ * but an emit delivers its payload to same-*name* subscribers regardless of
+ * namespace or the gate — the "denied but still delivered" leak the strengthened
+ * rule-4 check must catch. Kept off the {@link RuleId} axis (it is not a distinct
+ * rule, but a leak within rule 4), so the one-check-per-rule mapping stays intact.
  */
-function createConformanceHost(broken?: RuleId): ConformanceHost {
+function createConformanceHost(
+  broken?: RuleId,
+  opts: { readonly eventLeak?: boolean } = {},
+): ConformanceHost {
   const enforceRecords = broken !== 'capability-intersection';
   const enforceNet = broken !== 'net-host-scope';
   const stampIdentity = broken !== 'remote-identity';
   const enforceEvents = broken !== 'event-gating';
   const distinctIds = broken !== 'per-instance-id';
   const revokeOnUnmount = broken !== 'unmount-revocation';
+  const eventLeak = opts.eventLeak === true;
 
   const subscriptions = new Set<Subscription>();
 
@@ -196,10 +207,20 @@ function createConformanceHost(broken?: RuleId): ConformanceHost {
     const events: HostSDK['events'] = {
       emit<T>(topic: TypedTopic<T>, payload: T): void {
         if (revoked) throw new InstanceGone({ instanceId });
+        // Seeded leak: deliver by topic *name* alone — ignoring the namespace and
+        // the capability gate — so an ungranted emit still reaches a same-name
+        // subscriber. This is the "denied but delivered" breach the strengthened
+        // rule-4 check catches; a faithful host delivers only after the gate and
+        // only to exact-topic (ns + name) subscribers.
+        if (eventLeak) {
+          for (const sub of subscriptions) {
+            if (sub.name === topic.name) sub.handler(payload);
+          }
+        }
         if (enforceEvents && !granted('events', [topic.ns])) {
           throw denied('events', topic.ns);
         }
-        deliver(topic.ns, topic.name, payload);
+        if (!eventLeak) deliver(topic.ns, topic.name, payload);
       },
       on<T>(topic: TypedTopic<T>, handler: (payload: T) => void): Unsubscribe {
         if (revoked) throw new InstanceGone({ instanceId });
@@ -306,4 +327,28 @@ describe('conformance kit — acceptance gate', () => {
       expect((thrown as ConformanceViolation).rule).toBe(rule);
     });
   }
+
+  test('catches an events-gating leak: a denied out-of-namespace emit that still delivered', async () => {
+    // A host that correctly *denies* out-of-namespace subscribe/emit (so the denial
+    // assertions pass) but leaks the emitted payload to a same-name subscriber
+    // regardless of namespace — the "never a delivered event" breach only the
+    // strengthened rule-4 assertion catches. This proves the strengthening is
+    // load-bearing: disabling the gate entirely is already caught by the
+    // denial assertions, but a deliver-past-the-gate leak needs its own assertion.
+    const host = createConformanceHost(undefined, { eventLeak: true });
+    const check = conformanceChecks.find((c) => c.id === 'event-gating');
+    if (check === undefined) throw new Error('no event-gating check');
+
+    let thrown: unknown;
+    try {
+      await check.run(host);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown, 'the kit did not catch a denied-but-delivered events leak').toBeInstanceOf(
+      ConformanceViolation,
+    );
+    expect((thrown as ConformanceViolation).rule).toBe('event-gating');
+  });
 });
