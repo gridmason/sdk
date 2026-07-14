@@ -75,7 +75,9 @@ export function scopedFetch(sdk: HostSDK, req: ScopedRequest): Promise<ScopedRes
 /**
  * Publish `payload` to `topic`'s subscribers — a 1:1 wrapper over
  * `sdk.events.emit` (SPEC §4). Gated by `events:<topic.ns>` in the host exactly as
- * a direct call would be.
+ * a direct call would be: a topic in a namespace the widget's `events:<ns>` does
+ * not cover throws the host's typed `PermissionDenied` straight through this
+ * wrapper — never a silent no-op, and never a delivered event (SPEC §3 rule 4).
  */
 export function emit<T>(sdk: HostSDK, topic: TypedTopic<T>, payload: T): void {
   sdk.events.emit(topic, payload);
@@ -96,14 +98,23 @@ export function emit<T>(sdk: HostSDK, topic: TypedTopic<T>, payload: T): void {
  * vanilla by calling `releaseInstance` from its teardown). The returned unsubscribe
  * deregisters itself, so a manual unsubscribe is never re-run by `releaseInstance`;
  * both are idempotent.
+ *
+ * The host's capability check runs first: `sdk.events.on` throws a typed
+ * `PermissionDenied` for a topic whose `events:<ns>` the widget lacks (SPEC §3
+ * rule 4), and because that call happens *before* the subscription is added to the
+ * per-handle registry below, a denied subscription is never tracked and never
+ * delivered to — the denial propagates straight to the caller, never a silent
+ * no-op.
  */
 export function subscribe<T>(
   sdk: HostSDK,
   topic: TypedTopic<T>,
   handler: (payload: T) => void,
 ): Unsubscribe {
-  const store = storeFor(sdk);
+  // Subscribe through the host first, so an out-of-namespace denial throws before
+  // we touch the registry (nothing to leak or release on a denied subscribe).
   const raw = sdk.events.on(topic, handler);
+  const store = storeFor(sdk);
   let released = false;
   const release: Unsubscribe = () => {
     if (released) return;

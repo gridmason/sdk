@@ -323,7 +323,10 @@ const remoteIdentity: ConformanceCheck = {
  * shared global. Emitting or subscribing on a namespace the widget lacks is a
  * typed denial; a granted typed topic is delivered host-mediated to a co-mounted
  * subscriber and routed by exact topic, so a widget cannot reach the bus except
- * through a capability it holds.
+ * through a capability it holds. The denial is strengthened to *no delivery*: a
+ * denied out-of-namespace emit must not reach a live subscriber — neither leaked
+ * past the gate nor routed by topic name across namespaces (SPEC §6, "never a
+ * delivered event").
  */
 const eventGating: ConformanceCheck = {
   id: 'event-gating',
@@ -386,12 +389,45 @@ const eventGating: ConformanceCheck = {
 
     await waitFor(() => received.length >= 1, DELIVERY_WAIT_MS);
     await delay(DELIVERY_SETTLE_MS); // let any erroneous same-ns delivery land too
-    unsub();
 
     if (received.length !== 1 || received[0]?.id !== 's1') {
+      unsub();
       violate(
         'event-gating',
         `a granted typed topic emission was not delivered host-mediated and routed by exact topic (received ${JSON.stringify(received)}, expected exactly [{ id: 's1' }]) — the bus must gate by capability and route by typed topic, never behave as a shared global (SPEC §3 rule 4).`,
+      );
+    }
+
+    // (d) A capability denial is *no delivery*, not merely a thrown error — "never a
+    // delivered event" (SPEC §3 rule 4, §6). With the granted acme.sales/selected
+    // handler still live, the emitter (which holds only events:acme.sales) emits a
+    // topic of the same *name* in an ungranted namespace: a conforming host must
+    // throw PermissionDenied *and* deliver nothing — neither leaking the payload past
+    // the gate (deliver-then-deny) nor routing it by name across namespaces into the
+    // live subscriber. This is stronger than (b): (b) proves the emit throws, (d)
+    // proves the throw is accompanied by silence on the bus.
+    const crossNs = topic<SalePayload>('secret.ops', 'selected');
+    const leak = trySync(() => emitter.sdk.events.emit(crossNs, { id: 'leaked' }));
+    if (leak.ok) {
+      unsub();
+      violate(
+        'event-gating',
+        `events.emit on the ungranted namespace "secret.ops" was allowed — an emission requires the events:<ns> capability (SPEC §3 rule 4).`,
+      );
+    }
+    if (!isPermissionDenied(leak.error)) {
+      unsub();
+      violate(
+        'event-gating',
+        `events.emit on the ungranted namespace "secret.ops" threw ${describeThrown(leak.error)} instead of a typed PermissionDenied (SPEC §3 rule 4).`,
+      );
+    }
+    await delay(DELIVERY_SETTLE_MS); // let any erroneous cross-namespace delivery land before asserting it did not
+    unsub();
+    if (received.length !== 1) {
+      violate(
+        'event-gating',
+        `a denied out-of-namespace emission was still delivered to a subscriber (received ${JSON.stringify(received)}, expected the denial to reach no one) — a capability denial must be no delivery, never a leaked event routed by name across namespaces (SPEC §3 rule 4, §6).`,
       );
     }
   },
