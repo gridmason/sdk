@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/gridmason/sdk/security/advisories/new
+    about: Do NOT open a public issue for a security vulnerability. Report it privately through GitHub Security Advisories (see SECURITY.md).
+  - name: Question or discussion
+    url: https://github.com/orgs/gridmason/discussions
+    about: For usage questions and open-ended discussion, please use Discussions rather than an issue.

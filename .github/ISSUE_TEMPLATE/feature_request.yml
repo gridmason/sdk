@@ -1,0 +1,43 @@
+name: Feature request / contract change
+description: Propose an addition or change to @gridmason/sdk (interface, helpers, or a contract rule).
+labels: ["type:enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The `HostSDK` interface is a contract every host and widget builds
+        against, so changes to it are handled contract-first (see
+        [CONTRIBUTING.md](https://github.com/gridmason/sdk/blob/main/CONTRIBUTING.md)). Please describe the
+        contract impact, not just the feature.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do that the SDK does not support today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What interface member, helper, or contract rule would change or be added?
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Contract impact
+      description: Is this additive (backward-compatible) or breaking?
+      options:
+        - Additive (new optional method/helper — minor)
+        - Breaking (changes an existing signature or rule — major)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, and why the proposed one is preferable.
+    validations:
+      required: false

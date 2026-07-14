@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a defect in @gridmason/sdk (the HostSDK interface, helpers, or dev implementations).
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. **Do not report a security vulnerability here** —
+        a capability, scoping, identity, or isolation bypass is a private report
+        (see [SECURITY.md](https://github.com/gridmason/sdk/blob/main/SECURITY.md)).
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description: Which `@gridmason/sdk` version (or commit) are you on?
+      placeholder: "0.0.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Package/build/exports (install, types, subpath resolution)
+        - HostSDK interface / types
+        - Widget helpers (react / vue / vanilla)
+        - No-op implementation (createNoopSDK)
+        - Fixture implementation (createFixtureSDK)
+        - Conformance kit
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Steps, a code snippet, or a link to a repo that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, package manager, framework (if a helper), OS.
+    validations:
+      required: false
