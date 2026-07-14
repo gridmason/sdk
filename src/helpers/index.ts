@@ -57,6 +57,13 @@ import type {
   WidgetSettings,
 } from '../interface/index.js';
 
+// Telemetry-attribution helpers (SPEC §3 telemetry/identity, §2 audit trail): the
+// identity-stamping seam over `sdk.telemetry`. Part of the framework-agnostic core
+// like the 1:1 wrappers below, so it is surfaced through this barrel (and, via
+// `../index.ts`, the package root) and re-exported unchanged by every adapter.
+export { attributeTelemetry } from './telemetry.js';
+export type { AttributedError, AttributedMark, AttributedTelemetry } from './telemetry.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1:1 handle wrappers (framework-agnostic, no added behavior)
 // ─────────────────────────────────────────────────────────────────────────────
