@@ -17,3 +17,7 @@
 export * from './protocol/index.js';
 export * from './interface/index.js';
 export * from './helpers/index.js';
+// The framework-agnostic settings-form helper (FR-6): the adapter contract, schema
+// compiler, and controller. Surfaced here (not from the helpers barrel) so its
+// dependency on the helper core stays one-way. The React binding is at `./react`.
+export * from './helpers/settings-form/index.js';

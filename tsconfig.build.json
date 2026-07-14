@@ -7,5 +7,10 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src"],
-  "exclude": ["test", "**/*.test.ts"]
+  "exclude": [
+    "test",
+    "**/*.test.ts",
+    "**/*.stories.tsx",
+    "src/helpers/settings-form/stub.tsx"
+  ]
 }

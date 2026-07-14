@@ -378,3 +378,8 @@ export function settingsSource(sdk: HostSDK): SettingsSource {
   if (store.settings === undefined) store.settings = createSettingsSource(sdk);
   return store.settings;
 }
+
+// The settings-form helper (FR-6) lives in `./settings-form/` and builds on this
+// core (its controller consumes `settingsSource`). It is surfaced from the package
+// root by `../index.ts` — not re-exported here — so the dependency stays one-way
+// (settings-form → core), never a cycle back through this barrel.
