@@ -48,14 +48,19 @@ import type {
   TypedTopic,
   WidgetSettings,
 } from '../../interface/index.js';
-import type { RecordStatus } from '../index.js';
-import { recordSource, releaseInstance, settingsSource, subscribe } from '../index.js';
+import type { AttributedTelemetry, RecordStatus } from '../index.js';
+import { attributeTelemetry, recordSource, releaseInstance, settingsSource, subscribe } from '../index.js';
 
-// The framework-agnostic 1:1 wrappers need no Vue glue; re-export them so a widget
-// imports its whole helper set from `@gridmason/sdk/vue`. `releaseInstance` is
-// re-exported for a widget that wants to release every subscription itself.
-export { emit, releaseInstance, scopedFetch } from '../index.js';
+// The framework-agnostic 1:1 wrappers and the attribution facade need no Vue glue;
+// re-export them so a widget imports its whole helper set from `@gridmason/sdk/vue`.
+// `releaseInstance` is re-exported for a widget that wants to release every
+// subscription itself; `attributeTelemetry` for a widget that wants the facade
+// outside `setup` (the `useTelemetry` composable is the in-`setup` form).
+export { attributeTelemetry, emit, releaseInstance, scopedFetch } from '../index.js';
 export type {
+  AttributedError,
+  AttributedMark,
+  AttributedTelemetry,
   ReactiveSource,
   RecordSnapshot,
   RecordSource,
@@ -194,4 +199,26 @@ export function on<T>(sdk: HostSDK, topic: TypedTopic<T>, handler: (payload: T) 
  */
 export function useInstanceCleanup(sdk: HostSDK): void {
   onScopeDispose(() => releaseInstance(sdk));
+}
+
+/**
+ * The attributed telemetry surface for this mount (SPEC §3 telemetry/identity, §2
+ * audit trail) — the Vue form of {@link import('../index.js').attributeTelemetry},
+ * mirroring React's `useTelemetry`. Returns the {@link AttributedTelemetry} facade
+ * whose `mark`/`error` stamp the handle's `instanceId` + `widgetId` before
+ * forwarding to `sdk.telemetry`, and whose `time` measures an operation's latency
+ * — so a widget author reports an error or times an operation without
+ * hand-threading identity.
+ *
+ * The facade is stateless and stable per handle (the core caches it); there is no
+ * subscription to release, so — unlike the reactive composables — it registers no
+ * `onScopeDispose` teardown. Call it from `setup` (or another composable):
+ *
+ * ```ts
+ * const telemetry = useTelemetry(sdk);
+ * const rows = await telemetry.time('load', () => getRecord(sdk, ref));
+ * ```
+ */
+export function useTelemetry(sdk: HostSDK): AttributedTelemetry {
+  return attributeTelemetry(sdk);
 }

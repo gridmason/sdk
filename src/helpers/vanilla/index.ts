@@ -48,7 +48,14 @@ import { recordSource, settingsSource } from '../index.js';
 // removed, to release every subscription it opened through the helpers at once
 // (SPEC §3 rule 6, widget side — see the lifecycle note below).
 export { emit, releaseInstance, scopedFetch, subscribe as on } from '../index.js';
+// `attributeTelemetry` is already a plain function — the vanilla telemetry helper
+// *is* the core facade (no hook/composable lifecycle to add), so it is re-exported
+// as-is, the non-hook form of React/Vue's `useTelemetry`.
+export { attributeTelemetry } from '../index.js';
 export type {
+  AttributedError,
+  AttributedMark,
+  AttributedTelemetry,
   ReactiveSource,
   RecordSnapshot,
   RecordSource,
